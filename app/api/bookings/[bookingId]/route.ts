@@ -14,6 +14,12 @@ export async function PATCH(
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
+  const bookingId = String(params.bookingId ?? "").trim();
+
+  if (!bookingId) {
+    return NextResponse.json({ error: "Booking id is required." }, { status: 400 });
+  }
+
   const body = await request.json();
   const update: {
     status?: BookingStatus;
@@ -45,21 +51,48 @@ export async function PATCH(
     return NextResponse.json({ error: "No valid update fields provided." }, { status: 400 });
   }
 
-  const { data, error } = await supabase
+  const existingResult = await supabase
     .from("bookings")
-    .update(update)
-    .eq("id", params.bookingId)
-    .select()
+    .select("id")
+    .eq("id", bookingId)
     .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (existingResult.error) {
+    return NextResponse.json({ error: existingResult.error.message }, { status: 500 });
   }
 
-  if (!data) {
-    return NextResponse.json({ error: "Booking was not found or could not be updated." }, { status: 404 });
+  if (!existingResult.data) {
+    return NextResponse.json({ error: "Booking was not found." }, { status: 404 });
   }
 
-  return NextResponse.json({ booking: data });
+  const updateResult = await supabase
+    .from("bookings")
+    .update(update)
+    .eq("id", bookingId)
+    .select("*")
+    .maybeSingle();
+
+  if (updateResult.error) {
+    return NextResponse.json({ error: updateResult.error.message }, { status: 500 });
+  }
+
+  if (updateResult.data) {
+    return NextResponse.json({ booking: updateResult.data });
+  }
+
+  const refreshedResult = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", bookingId)
+    .maybeSingle();
+
+  if (refreshedResult.error) {
+    return NextResponse.json({ error: refreshedResult.error.message }, { status: 500 });
+  }
+
+  if (!refreshedResult.data) {
+    return NextResponse.json({ error: "Booking was updated but could not be reloaded." }, { status: 500 });
+  }
+
+  return NextResponse.json({ booking: refreshedResult.data });
 }
-
