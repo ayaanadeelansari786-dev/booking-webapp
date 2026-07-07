@@ -1,4 +1,4 @@
-﻿export type BookingStatus = "new" | "scheduled" | "completed" | "cancelled";
+﻿export type BookingStatus = "new" | "scheduled" | "completed" | "cancelled" | "archived";
 
 export type Business = {
   id: string;
@@ -40,6 +40,10 @@ export const bookingStatuses: BookingStatus[] = [
   "new",
   "scheduled",
   "completed",
-  "cancelled"
+  "cancelled",
+  "archived"
 ];
+
+
+
 

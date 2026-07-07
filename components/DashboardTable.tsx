@@ -29,7 +29,7 @@ type DashboardTableProps = {
 type ViewMode = "list" | "calendar";
 type SaveField = "status" | "assigned_technician_id" | "scheduled_at";
 
-const filters: Array<"all" | BookingStatus> = ["all", "new", "scheduled", "completed", "cancelled"];
+const filters: Array<"all" | BookingStatus> = ["all", "new", "scheduled", "completed", "cancelled", "archived"];
 const glassCard = "rounded-2xl border border-white/[0.08] bg-white/[0.05] shadow-2xl shadow-black/25 backdrop-blur-xl";
 const glassInput = "rounded-lg border border-white/[0.15] bg-white/[0.08] px-3 py-1.5 text-sm font-semibold text-white transition focus:border-[#3B82F6] focus:shadow-[0_0_0_2px_rgba(59,130,246,0.5)]";
 
@@ -42,7 +42,8 @@ function statusClasses(status: BookingStatus) {
     new: "border-[#3B82F6] bg-[#3B82F6]/20 text-[#3B82F6] shadow-[0_0_8px_rgba(59,130,246,0.3)]",
     scheduled: "border-[#00D4FF] bg-[#00D4FF]/20 text-[#00D4FF] shadow-[0_0_8px_rgba(0,212,255,0.3)]",
     completed: "border-[#10B981] bg-[#10B981]/20 text-[#10B981] shadow-[0_0_8px_rgba(16,185,129,0.3)]",
-    cancelled: "border-[#EF4444] bg-[#EF4444]/20 text-[#EF4444] shadow-[0_0_8px_rgba(239,68,68,0.3)]"
+    cancelled: "border-[#EF4444] bg-[#EF4444]/20 text-[#EF4444] shadow-[0_0_8px_rgba(239,68,68,0.3)]",
+    archived: "border-[#A0AEC0] bg-[#A0AEC0]/20 text-[#A0AEC0] shadow-[0_0_8px_rgba(160,174,192,0.3)]"
   };
 
   return classes[status];
@@ -105,7 +106,17 @@ function isDifferentSchedule(booking: Booking) {
   return Math.abs(parseISO(booking.scheduled_at).getTime() - requested.getTime()) > 60 * 1000;
 }
 
-function Details({ booking, technicians }: { booking: Booking; technicians: Technician[] }) {
+function Details({
+  booking,
+  technicians,
+  onArchive,
+  isArchiving
+}: {
+  booking: Booking;
+  technicians: Technician[];
+  onArchive: (bookingId: string) => void;
+  isArchiving: boolean;
+}) {
   return (
     <div className="grid gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.07] p-4 text-sm text-[#A0AEC0] backdrop-blur-xl sm:grid-cols-2">
       <p><span className="font-bold text-white">Status:</span> <StatusPill status={booking.status} /></p>
@@ -114,6 +125,47 @@ function Details({ booking, technicians }: { booking: Booking; technicians: Tech
       <p><span className="font-bold text-white">Assigned:</span> {assignedName(booking, technicians)}</p>
       <p><span className="font-bold text-white">Created:</span> {displayCreatedAt(booking.created_at)}</p>
       <p className="sm:col-span-2"><span className="font-bold text-white">Full issue:</span> {booking.issue_description || "Not provided"}</p>
+      {booking.status !== "archived" ? (
+        <div className="sm:col-span-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => onArchive(booking.id)}
+            disabled={isArchiving}
+            className="rounded-xl border border-[#A0AEC0]/40 bg-[#A0AEC0]/10 px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#A0AEC0] transition hover:border-[#A0AEC0] hover:bg-[#A0AEC0]/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isArchiving ? "Archiving" : "Archive"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function isActiveTechnicianJob(booking: Booking) {
+  return booking.status === "new" || booking.status === "scheduled";
+}
+
+function isTechnicianHistoryJob(booking: Booking) {
+  return booking.status === "completed" || booking.status === "cancelled" || booking.status === "archived";
+}
+
+function JobHistoryList({ jobs, emptyText }: { jobs: Booking[]; emptyText: string }) {
+  if (jobs.length === 0) {
+    return <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">{emptyText}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {jobs.map((job) => (
+        <div key={job.id} className="rounded-xl border border-white/[0.08] bg-white/[0.05] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-bold text-white">{job.customer_name}</p>
+            <StatusPill status={job.status} />
+          </div>
+          <p className="mt-1 text-xs font-semibold text-[#A0AEC0]">{requestedLabel(job)}</p>
+          <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#A0AEC0]">{job.issue_description || "No issue description provided."}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -315,23 +367,36 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [showTeamForm, setShowTeamForm] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [expandedTechnicianId, setExpandedTechnicianId] = useState<string | null>(null);
+  const [technicianJobsById, setTechnicianJobsById] = useState<Record<string, Booking[]>>({});
+  const [loadingTechnicianId, setLoadingTechnicianId] = useState<string | null>(null);
   const [teamName, setTeamName] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
   const [isAddingTeam, setIsAddingTeam] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date());
 
+  const listBookings = useMemo(() => {
+    return showArchived ? bookings : bookings.filter((booking) => booking.status !== "archived");
+  }, [bookings, showArchived]);
+
   const counts = useMemo(() => {
     return filters.reduce<Record<string, number>>((current, item) => {
-      current[item] = item === "all"
-        ? bookings.length
-        : bookings.filter((booking) => booking.status === item).length;
+      if (item === "all") {
+        current[item] = listBookings.length;
+      } else if (item === "archived") {
+        current[item] = bookings.filter((booking) => booking.status === "archived").length;
+      } else {
+        current[item] = listBookings.filter((booking) => booking.status === item).length;
+      }
+
       return current;
     }, {});
-  }, [bookings]);
+  }, [bookings, listBookings]);
 
-  const weekCount = useMemo(() => bookings.filter((booking) => isThisWeek(booking.created_at)).length, [bookings]);
-  const visibleBookings = bookings.filter((booking) => filter === "all" || booking.status === filter);
+  const weekCount = useMemo(() => listBookings.filter((booking) => isThisWeek(booking.created_at)).length, [listBookings]);
+  const visibleBookings = listBookings.filter((booking) => filter === "all" || booking.status === filter);
   const calendarDayBookings = visibleBookings.filter((booking) => isSameDay(bookingEventDate(booking), selectedCalendarDate));
 
   async function updateBooking(bookingId: string, field: SaveField, value: string | null) {
@@ -358,6 +423,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
 
       if (payload.booking) {
         setBookings((current) => current.map((booking) => booking.id === bookingId ? payload.booking : booking));
+        setTechnicianJobsById({});
       }
 
       const nextSavedKey = `${bookingId}:${field}`;
@@ -401,6 +467,58 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
     setExpandedId((current) => (current === bookingId ? null : bookingId));
   }
 
+  function archiveBooking(bookingId: string) {
+    updateBooking(bookingId, "status", "archived");
+  }
+
+  function toggleFilter(item: "all" | BookingStatus) {
+    if (item === "archived") {
+      setShowArchived(true);
+    }
+
+    setFilter(item);
+  }
+
+  function toggleArchivedVisibility() {
+    setShowArchived((current) => {
+      if (current && filter === "archived") {
+        setFilter("all");
+      }
+
+      return !current;
+    });
+  }
+
+  async function toggleTechnicianHistory(technicianId: string) {
+    const opening = expandedTechnicianId !== technicianId;
+    setExpandedTechnicianId(opening ? technicianId : null);
+
+    if (!opening || technicianJobsById[technicianId]) {
+      return;
+    }
+
+    setLoadingTechnicianId(technicianId);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/technicians/${technicianId}/bookings`);
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Technician jobs could not be loaded.");
+      }
+
+      setTechnicianJobsById((current) => ({
+        ...current,
+        [technicianId]: payload.bookings ?? []
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Technician jobs could not be loaded.");
+    } finally {
+      setLoadingTechnicianId((current) => (current === technicianId ? null : current));
+    }
+  }
+
   function renderBookingCard(booking: Booking) {
     const isExpanded = expandedId === booking.id;
 
@@ -425,7 +543,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
         </div>
         <div className={clsx("overflow-hidden transition-[max-height,opacity] duration-300 ease-out", isExpanded ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0")} >
           <div className="pt-4">
-            <Details booking={booking} technicians={technicians} />
+            <Details booking={booking} technicians={technicians} onArchive={archiveBooking} isArchiving={savedKey === `${booking.id}:status`} />
           </div>
         </div>
       </article>
@@ -453,7 +571,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
             <div className="grid grid-cols-3 gap-3 lg:min-w-[480px]">
               <div className="animate-fade-slide-up rounded-2xl border-l-4 border-[#3B82F6] bg-white/[0.05] p-4 transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_32px_rgba(59,130,246,0.15)]">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#A0AEC0]">Total</p>
-                <p className="mt-1 text-3xl font-bold text-white">{bookings.length}</p>
+                <p className="mt-1 text-3xl font-bold text-white">{listBookings.length}</p>
               </div>
               <div className="animate-fade-slide-up rounded-2xl border-l-4 border-[#3B82F6] bg-white/[0.05] p-4 transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_32px_rgba(59,130,246,0.15)] [animation-delay:100ms]">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#A0AEC0]">New</p>
@@ -476,7 +594,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setFilter(item)}
+                  onClick={() => toggleFilter(item)}
                   className={clsx(
                     "flex min-h-12 shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition",
                     filter === item
@@ -489,6 +607,18 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={toggleArchivedVisibility}
+              className={clsx(
+                "min-h-12 rounded-xl border px-4 py-2 text-sm font-black transition",
+                showArchived
+                  ? "border-[#A0AEC0] bg-[#A0AEC0]/20 text-[#A0AEC0] shadow-[0_0_14px_rgba(160,174,192,0.18)]"
+                  : "border-white/[0.08] text-[#A0AEC0] hover:bg-white/[0.07] hover:text-white"
+              )}
+            >
+              {showArchived ? "Hide Archived" : `Show Archived (${counts.archived ?? 0})`}
+            </button>
             <div className="flex rounded-2xl border border-white/[0.08] bg-white/[0.05] p-1">
               {(["list", "calendar"] as ViewMode[]).map((mode) => (
                 <button
@@ -528,8 +658,48 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
             </form>
           ) : null}
           {technicians.length ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {technicians.map((technician) => <span key={technician.id} className="rounded-full border border-white/[0.08] bg-white/[0.05] px-3 py-1 text-sm font-semibold text-[#A0AEC0]">{technician.name}</span>)}
+            <div className="mt-4 space-y-3">
+              {technicians.map((technician) => {
+                const technicianBookings = technicianJobsById[technician.id] ?? bookings.filter((booking) => booking.assigned_technician_id === technician.id);
+                const activeJobs = technicianBookings.filter(isActiveTechnicianJob);
+                const historyJobs = technicianBookings.filter(isTechnicianHistoryJob);
+                const isExpanded = expandedTechnicianId === technician.id;
+                const isLoading = loadingTechnicianId === technician.id;
+
+                return (
+                  <div key={technician.id} className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04]">
+                    <button
+                      type="button"
+                      onClick={() => toggleTechnicianHistory(technician.id)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-white/[0.05]"
+                    >
+                      <div>
+                        <p className="text-sm font-bold text-white">{technician.name}</p>
+                        <p className="mt-1 text-xs font-semibold text-[#A0AEC0]">{activeJobs.length} active / {historyJobs.length} history</p>
+                      </div>
+                      <span className={clsx("text-lg text-[#A0AEC0] transition", isExpanded && "rotate-180")}>v</span>
+                    </button>
+                    <div className={clsx("overflow-hidden transition-[max-height,opacity] duration-300 ease-out", isExpanded ? "max-h-[900px] opacity-100" : "max-h-0 opacity-0")}>
+                      <div className="space-y-4 border-t border-white/[0.08] bg-white/[0.03] p-4">
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <h3 className="text-xs font-bold uppercase tracking-wide text-[#A0AEC0]">Active Jobs</h3>
+                            <span className="rounded-full bg-[#3B82F6]/15 px-2 py-0.5 text-xs font-bold text-[#3B82F6]">{activeJobs.length}</span>
+                          </div>
+                          {isLoading ? <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">Loading jobs...</p> : <JobHistoryList jobs={activeJobs} emptyText="No active jobs assigned." />}
+                        </div>
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <h3 className="text-xs font-bold uppercase tracking-wide text-[#A0AEC0]">History</h3>
+                            <span className="rounded-full bg-[#A0AEC0]/15 px-2 py-0.5 text-xs font-bold text-[#A0AEC0]">{historyJobs.length}</span>
+                          </div>
+                          {isLoading ? <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">Loading history...</p> : <JobHistoryList jobs={historyJobs} emptyText="No completed, cancelled, or archived jobs yet." />}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
         </div>
@@ -588,7 +758,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
                       </tr>
                       {isExpanded ? (
                         <tr className="animate-expand-panel border-b border-white/[0.05] bg-white/[0.07]">
-                          <td colSpan={6} className="px-5 py-4"><Details booking={booking} technicians={technicians} /></td>
+                          <td colSpan={6} className="px-5 py-4"><Details booking={booking} technicians={technicians} onArchive={archiveBooking} isArchiving={savedKey === `${booking.id}:status`} /></td>
                         </tr>
                       ) : null}
                     </Fragment>

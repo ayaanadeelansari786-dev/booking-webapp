@@ -30,11 +30,16 @@ export async function POST(request: Request) {
       phone: phone || null
     })
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  if (!data) {
+    return NextResponse.json({ error: "Team member was not created or could not be returned." }, { status: 500 });
+  }
+
   return NextResponse.json({ technician: data });
 }
+

@@ -50,11 +50,16 @@ export async function PATCH(
     .update(update)
     .eq("id", params.bookingId)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  if (!data) {
+    return NextResponse.json({ error: "Booking was not found or could not be updated." }, { status: 404 });
+  }
+
   return NextResponse.json({ booking: data });
 }
+

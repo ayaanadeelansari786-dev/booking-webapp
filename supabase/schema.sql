@@ -16,7 +16,7 @@ create table if not exists public.bookings (
   issue_description text,
   booking_date date not null,
   booking_time time not null,
-  status text not null default 'new' check (status in ('new', 'scheduled', 'completed', 'cancelled')),
+  status text not null default 'new' check (status in ('new', 'scheduled', 'completed', 'cancelled', 'archived')),
   created_at timestamptz not null default now()
 );
 
@@ -53,3 +53,4 @@ create policy "Public can update booking status for MVP"
   on public.bookings for update
   using (true)
   with check (true);
+
