@@ -32,12 +32,14 @@ export default async function BookPage({ params }: { params: { businessId: strin
   const { business, bookings } = await getBusinessAndBookings(params.businessId);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.18),transparent_31rem),linear-gradient(180deg,#edf7f5_0%,#f6f7fb_430px)] px-4 py-5 text-ink sm:px-6 sm:py-8">
-      <div className="mx-auto w-full max-w-2xl">
-        <header className="mb-6 overflow-hidden rounded-3xl bg-brand text-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-          <div className="p-6 sm:p-8">
+    <main className="relative min-h-screen overflow-hidden bg-[#0B0F1A] px-4 py-6 text-white sm:px-6 sm:py-10">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(ellipse_at_50%_0%,rgba(59,130,246,0.15)_0%,transparent_70%)]" />
+      <div className="pointer-events-none absolute left-1/2 top-24 h-64 w-64 -translate-x-1/2 rounded-full bg-[#00D4FF]/10 blur-3xl" />
+      <div className="relative mx-auto w-full max-w-2xl">
+        <header className="mb-5 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.05] shadow-2xl shadow-black/30 backdrop-blur-xl">
+          <div className="p-5 sm:p-7">
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white text-2xl font-black text-brand shadow-lg shadow-slate-950/10">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.07] text-2xl font-bold text-white shadow-[0_0_24px_rgba(59,130,246,0.22)]">
                 {business.logo_url ? (
                   <span
                     aria-label={`${business.name} logo`}
@@ -49,11 +51,11 @@ export default async function BookPage({ params }: { params: { businessId: strin
                 )}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-black uppercase tracking-[0.22em] text-white/70">Appointment request</p>
-                <h1 className="mt-1 text-3xl font-black leading-tight tracking-tight sm:text-4xl">{business.name}</h1>
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#A0AEC0]">Appointment request</p>
+                <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl">{business.name}</h1>
               </div>
             </div>
-            <p className="mt-6 text-xl font-medium leading-8 text-white/82">
+            <p className="mt-5 text-base font-medium leading-7 text-[#A0AEC0] sm:text-lg">
               Pick a time that works for you. We will text you a confirmation after your request is received.
             </p>
           </div>

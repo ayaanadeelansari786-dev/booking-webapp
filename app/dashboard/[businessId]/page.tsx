@@ -62,8 +62,11 @@ export default async function DashboardPage({ params }: { params: { businessId: 
   const { business, bookings, technicians } = await getDashboardData(params.businessId);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.16),transparent_34rem),linear-gradient(180deg,#eef7f5_0%,#f7f8fa_420px)] px-4 py-5 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-7xl">
+    <main className="relative min-h-screen overflow-hidden bg-[#0B0F1A] px-4 py-6 text-white sm:px-6 lg:px-8">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(ellipse_at_50%_0%,rgba(59,130,246,0.15)_0%,transparent_70%)]" />
+      <div className="pointer-events-none absolute right-[-8rem] top-24 h-72 w-72 rounded-full bg-[#00D4FF]/10 blur-3xl" />
+      <div className="pointer-events-none absolute left-[-8rem] top-56 h-72 w-72 rounded-full bg-[#3B82F6]/10 blur-3xl" />
+      <div className="relative mx-auto w-full max-w-7xl">
         <DashboardTable business={business} initialBookings={bookings} initialTechnicians={technicians} />
       </div>
     </main>
