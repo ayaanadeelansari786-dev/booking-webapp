@@ -53,4 +53,10 @@ create policy "Public can update booking status for MVP"
   on public.bookings for update
   using (true)
   with check (true);
+drop policy if exists "Authenticated can update bookings" on public.bookings;
+create policy "Authenticated can update bookings"
+  on public.bookings for update
+  to authenticated
+  using (true)
+  with check (true);
 

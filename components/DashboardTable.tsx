@@ -203,7 +203,7 @@ function TechnicianDropdown({
         </svg>
       </button>
       {isOpen ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-white/10 bg-[#1A2035] shadow-2xl shadow-black/40 backdrop-blur-xl">
+        <div className="absolute left-0 right-0 top-full z-[80] mt-2 max-h-72 overflow-y-auto rounded-xl border border-white/10 bg-[#1A2035] shadow-2xl shadow-black/40 backdrop-blur-xl">
           {[{ id: "", name: "Unassigned" }, ...technicians].map((technician) => {
             const selected = (booking.assigned_technician_id ?? "") === technician.id;
 
@@ -371,6 +371,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
   const [expandedTechnicianId, setExpandedTechnicianId] = useState<string | null>(null);
   const [technicianJobsById, setTechnicianJobsById] = useState<Record<string, Booking[]>>({});
   const [loadingTechnicianId, setLoadingTechnicianId] = useState<string | null>(null);
+  const [deletingTechnicianId, setDeletingTechnicianId] = useState<string | null>(null);
   const [teamName, setTeamName] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
   const [isAddingTeam, setIsAddingTeam] = useState(false);
@@ -401,13 +402,16 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
 
   async function updateBooking(bookingId: string, field: SaveField, value: string | null) {
     const previous = bookings;
+    const isArchiveAction = field === "status" && value === "archived";
     setError("");
     setSavedKey(null);
-    setBookings((current) =>
-      current.map((booking) =>
-        booking.id === bookingId ? { ...booking, [field]: value } : booking
-      )
-    );
+    if (!isArchiveAction) {
+      setBookings((current) =>
+        current.map((booking) =>
+          booking.id === bookingId ? { ...booking, [field]: value } : booking
+        )
+      );
+    }
 
     try {
       const response = await fetch(`/api/bookings/${bookingId}`, {
@@ -418,10 +422,27 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
       const payload = await response.json();
 
       if (!response.ok) {
+        if (isArchiveAction) {
+          console.error("[dashboard archive] API failed", { bookingId, status: value, payload });
+        }
+
         throw new Error(payload.error || "Update could not be saved.");
       }
 
-      if (payload.booking) {
+      if (isArchiveAction) {
+        const archivedBooking = payload.booking
+          ? { ...payload.booking, status: "archived" as BookingStatus }
+          : { ...previous.find((booking) => booking.id === bookingId), status: "archived" as BookingStatus };
+
+        if (!archivedBooking?.id) {
+          console.error("[dashboard archive] Missing booking after successful archive", { bookingId, payload });
+          throw new Error("Booking was archived but could not be updated locally.");
+        }
+
+        setBookings((current) => current.map((booking) => booking.id === bookingId ? archivedBooking as Booking : booking));
+        setTechnicianJobsById({});
+        setExpandedId((current) => (current === bookingId ? null : current));
+      } else if (payload.booking) {
         setBookings((current) => current.map((booking) => booking.id === bookingId ? payload.booking : booking));
         setTechnicianJobsById({});
       }
@@ -430,6 +451,10 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
       setSavedKey(nextSavedKey);
       window.setTimeout(() => setSavedKey((current) => (current === nextSavedKey ? null : current)), 1600);
     } catch (caught) {
+      if (isArchiveAction) {
+        console.error("[dashboard archive] Update failed", { bookingId, status: value, caught });
+      }
+
       setBookings(previous);
       setError(caught instanceof Error ? caught.message : "Update could not be saved.");
     }
@@ -463,6 +488,45 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
     }
   }
 
+
+  async function removeTechnician(technicianId: string) {
+    const technician = technicians.find((item) => item.id === technicianId);
+
+    if (!technician) {
+      return;
+    }
+
+    const previousTechnicians = technicians;
+    const previousBookings = bookings;
+    setError("");
+    setDeletingTechnicianId(technicianId);
+
+    try {
+      const response = await fetch(`/api/technicians/${technicianId}`, {
+        method: "DELETE"
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Team member could not be removed.");
+      }
+
+      setTechnicians((current) => current.filter((item) => item.id !== technicianId));
+      setBookings((current) => current.map((booking) => booking.assigned_technician_id === technicianId ? { ...booking, assigned_technician_id: null } : booking));
+      setTechnicianJobsById((current) => {
+        const next = { ...current };
+        delete next[technicianId];
+        return next;
+      });
+      setExpandedTechnicianId((current) => (current === technicianId ? null : current));
+    } catch (caught) {
+      setTechnicians(previousTechnicians);
+      setBookings(previousBookings);
+      setError(caught instanceof Error ? caught.message : "Team member could not be removed.");
+    } finally {
+      setDeletingTechnicianId((current) => (current === technicianId ? null : current));
+    }
+  }
   function toggleExpanded(bookingId: string) {
     setExpandedId((current) => (current === bookingId ? null : bookingId));
   }
@@ -665,35 +729,50 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
                 const historyJobs = technicianBookings.filter(isTechnicianHistoryJob);
                 const isExpanded = expandedTechnicianId === technician.id;
                 const isLoading = loadingTechnicianId === technician.id;
+                const isDeleting = deletingTechnicianId === technician.id;
 
                 return (
                   <div key={technician.id} className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04]">
-                    <button
-                      type="button"
-                      onClick={() => toggleTechnicianHistory(technician.id)}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-white/[0.05]"
-                    >
-                      <div>
-                        <p className="text-sm font-bold text-white">{technician.name}</p>
-                        <p className="mt-1 text-xs font-semibold text-[#A0AEC0]">{activeJobs.length} active / {historyJobs.length} history</p>
-                      </div>
-                      <span className={clsx("text-lg text-[#A0AEC0] transition", isExpanded && "rotate-180")}>v</span>
-                    </button>
-                    <div className={clsx("overflow-hidden transition-[max-height,opacity] duration-300 ease-out", isExpanded ? "max-h-[900px] opacity-100" : "max-h-0 opacity-0")}>
-                      <div className="space-y-4 border-t border-white/[0.08] bg-white/[0.03] p-4">
-                        <div>
+                    <div className="flex items-stretch gap-2 px-3 py-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleTechnicianHistory(technician.id)}
+                        className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl px-2 py-1 text-left transition hover:bg-white/[0.05]"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">{technician.name}</p>
+                          <p className="mt-1 text-xs font-semibold text-[#A0AEC0]">{activeJobs.length} current / {historyJobs.length} archived</p>
+                        </div>
+                        <span className={clsx("shrink-0 text-lg text-[#A0AEC0] transition", isExpanded && "rotate-180")}>v</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeTechnician(technician.id)}
+                        disabled={isDeleting}
+                        className="shrink-0 rounded-xl border border-red-400/20 bg-red-500/10 px-3 text-xs font-bold text-red-200 transition hover:border-red-300/40 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isDeleting ? "Removing" : "Remove"}
+                      </button>
+                    </div>
+                    <div className={clsx("overflow-hidden transition-[max-height,opacity] duration-300 ease-out", isExpanded ? "max-h-[980px] opacity-100" : "max-h-0 opacity-0")}>
+                      <div className="grid gap-4 border-t border-white/[0.08] bg-white/[0.03] p-4 xl:grid-cols-2">
+                        <div className="min-w-0">
                           <div className="mb-2 flex items-center justify-between gap-2">
-                            <h3 className="text-xs font-bold uppercase tracking-wide text-[#A0AEC0]">Active Jobs</h3>
+                            <h3 className="text-xs font-bold uppercase tracking-wide text-[#A0AEC0]">Current Jobs</h3>
                             <span className="rounded-full bg-[#3B82F6]/15 px-2 py-0.5 text-xs font-bold text-[#3B82F6]">{activeJobs.length}</span>
                           </div>
-                          {isLoading ? <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">Loading jobs...</p> : <JobHistoryList jobs={activeJobs} emptyText="No active jobs assigned." />}
+                          <div className="max-h-72 overflow-y-auto pr-1">
+                            {isLoading ? <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">Loading jobs...</p> : <JobHistoryList jobs={activeJobs} emptyText="No current jobs assigned." />}
+                          </div>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <div className="mb-2 flex items-center justify-between gap-2">
-                            <h3 className="text-xs font-bold uppercase tracking-wide text-[#A0AEC0]">History</h3>
+                            <h3 className="text-xs font-bold uppercase tracking-wide text-[#A0AEC0]">Archived / History</h3>
                             <span className="rounded-full bg-[#A0AEC0]/15 px-2 py-0.5 text-xs font-bold text-[#A0AEC0]">{historyJobs.length}</span>
                           </div>
-                          {isLoading ? <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">Loading history...</p> : <JobHistoryList jobs={historyJobs} emptyText="No completed, cancelled, or archived jobs yet." />}
+                          <div className="max-h-72 overflow-y-auto pr-1">
+                            {isLoading ? <p className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-[#A0AEC0]">Loading history...</p> : <JobHistoryList jobs={historyJobs} emptyText="No completed, cancelled, or archived jobs yet." />}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -730,7 +809,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
             {visibleBookings.map(renderBookingCard)}
           </div>
 
-          <div className="animate-fade-slide-up hidden overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.05] shadow-2xl shadow-black/25 backdrop-blur-xl md:block [animation-delay:300ms]">
+          <div className="animate-fade-slide-up hidden overflow-x-auto rounded-2xl border border-white/[0.08] bg-white/[0.05] shadow-2xl shadow-black/25 backdrop-blur-xl md:block [animation-delay:300ms]">
             <table className="w-full min-w-[1060px] border-collapse text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-[#A0AEC0]">
                 <tr>
@@ -803,6 +882,7 @@ export function DashboardTable({ business, initialBookings, initialTechnicians }
     </section>
   );
 }
+
 
 
 

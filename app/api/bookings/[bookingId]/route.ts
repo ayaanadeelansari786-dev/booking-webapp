@@ -51,17 +51,31 @@ export async function PATCH(
     return NextResponse.json({ error: "No valid update fields provided." }, { status: 400 });
   }
 
+  const isArchiveUpdate = update.status === "archived";
+
+  if (isArchiveUpdate) {
+    console.log("[booking update] Archive requested", { bookingId, status: update.status });
+  }
+
   const existingResult = await supabase
     .from("bookings")
-    .select("id")
+    .select("id,status")
     .eq("id", bookingId)
     .maybeSingle();
 
   if (existingResult.error) {
+    if (isArchiveUpdate) {
+      console.error("[booking update] Archive preflight failed", { bookingId, error: existingResult.error });
+    }
+
     return NextResponse.json({ error: existingResult.error.message }, { status: 500 });
   }
 
   if (!existingResult.data) {
+    if (isArchiveUpdate) {
+      console.error("[booking update] Archive target not found", { bookingId });
+    }
+
     return NextResponse.json({ error: "Booking was not found." }, { status: 404 });
   }
 
@@ -73,10 +87,24 @@ export async function PATCH(
     .maybeSingle();
 
   if (updateResult.error) {
+    if (isArchiveUpdate) {
+      console.error("[booking update] Archive write failed", { bookingId, update, error: updateResult.error });
+    }
+
     return NextResponse.json({ error: updateResult.error.message }, { status: 500 });
   }
 
   if (updateResult.data) {
+    if (isArchiveUpdate && updateResult.data.status !== "archived") {
+      console.error("[booking update] Archive write returned unexpected status", {
+        bookingId,
+        expected: "archived",
+        actual: updateResult.data.status
+      });
+
+      return NextResponse.json({ error: "Archive update did not persist." }, { status: 500 });
+    }
+
     return NextResponse.json({ booking: updateResult.data });
   }
 
@@ -87,11 +115,29 @@ export async function PATCH(
     .maybeSingle();
 
   if (refreshedResult.error) {
+    if (isArchiveUpdate) {
+      console.error("[booking update] Archive reload failed", { bookingId, error: refreshedResult.error });
+    }
+
     return NextResponse.json({ error: refreshedResult.error.message }, { status: 500 });
   }
 
   if (!refreshedResult.data) {
+    if (isArchiveUpdate) {
+      console.error("[booking update] Archive reload returned no row", { bookingId });
+    }
+
     return NextResponse.json({ error: "Booking was updated but could not be reloaded." }, { status: 500 });
+  }
+
+  if (isArchiveUpdate && refreshedResult.data.status !== "archived") {
+    console.error("[booking update] Archive reload returned unexpected status", {
+      bookingId,
+      expected: "archived",
+      actual: refreshedResult.data.status
+    });
+
+    return NextResponse.json({ error: "Archive update did not persist." }, { status: 500 });
   }
 
   return NextResponse.json({ booking: refreshedResult.data });
